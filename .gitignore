@@ -1,0 +1,10 @@
+cat << 'EOF' >> .gitignore
+
+# Entornos virtuales y secretos
+.env
+.venv/
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+EOF

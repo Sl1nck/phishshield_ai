@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phishshield-ai"
+version = "2.0.0"
+description = "Pipeline automatizado para la detección y análisis de phishing"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "google-genai>=0.1.1",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "rich>=13.0.0",
+    "tenacity>=8.2.0",       # Agregado: necesario para retardo exponencial y reintentos en la API de Gemini
+    "typer>=0.9.0",          # Agregado: necesario para el punto de entrada CLI (phishshield)
+    "playwright>=1.40.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-mock>=3.12.0",
+    "ruff>=0.3.0",
+    "mypy>=1.8.0"
+]
+
+[project.scripts]
+phishshield = "phishshield.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+# ==============================================================================
+# CONFIGURACIÓN DE RUFF (Linter y Formateador)
+# ==============================================================================
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes (detecta variables sin usar, imports no utilizados, etc.)
+    "I",   # isort (ordenamiento automático de importaciones)
+    "B",   # flake8-bugbear (detecta patrones propensos a bugs)
+    "UP",  # pyupgrade (fuerza sintaxis moderna de Python 3.12+)
+    "SIM", # flake8-simplify (simplificación inteligente de código)
+]
+ignore = [
+    "E501", # Delega la longitud de línea al formateador de Ruff
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ==============================================================================
+# CONFIGURACIÓN DE MYPY (Verificador Estático de Tipos)
+# ==============================================================================
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+check_untyped_defs = true
+files = ["src"]

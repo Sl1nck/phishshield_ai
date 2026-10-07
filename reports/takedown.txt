@@ -1,0 +1,17 @@
+SOLICITUD URGENTE DE DESACTIVACIÓN POR PHISHING (TAKEDOWN NOTICE)
+===============================================================
+
+Para: abuse@registrar-or-hosting.com
+Asunto: [URGENTE] Notificación de actividad maliciosa / Phishing - https://example.com/
+
+Marca Suplantada: Marca no identificada / Genérica
+Severidad: LOW (Riesgo: 0/100)
+
+EVIDENCIA TÉCNICA:
+ - Patrones sospechosos generales
+
+ARGUMENTACIÓN TÉCNICA:
+El sitio corresponde a la página oficial de example.com, un dominio reservado por IANA conforme a RFC 2606 y RFC 6761 para uso exclusivo en documentación y ejemplos. No solicita credenciales, carece de formularios o código malicioso, y no suplanta a ninguna marca.
+
+Atentamente,
+PhishShield AI Engine - Automated Incident Response

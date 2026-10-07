@@ -1,0 +1,28 @@
+{
+  "metadata": {
+    "scan_timestamp": "2026-09-29T16:54:33.314760+00:00",
+    "requested_url": "https://example.com",
+    "final_url": "https://example.com/",
+    "http_status_code": 200,
+    "screenshot_size_bytes": 21878
+  },
+  "dom_artifacts": {
+    "title": "Example Domain",
+    "has_password_field": false,
+    "forms_count": 0,
+    "external_links_count": 1,
+    "iframes_count": 0
+  },
+  "threat_analysis": {
+    "risk_score": 0,
+    "risk_level": "LOW",
+    "impersonated_brand": null,
+    "detected_indicators": [
+      "Known reserved domain for documentation",
+      "No malicious scripts or login forms detected",
+      "Standard IANA example page content"
+    ],
+    "reasoning": "The provided URL and content correspond to the standard 'example.com' domain, which is reserved by IANA specifically for use in documentation, tutorials, and examples. It does not display any indicators of phishing, credential harvesting, or malicious intent.",
+    "recommended_action": "No action required. This is a benign placeholder page."
+  }
+}
