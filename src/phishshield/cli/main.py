@@ -21,9 +21,19 @@ from phishshield.takedown.generator import TakedownGenerator
 
 app = typer.Typer(
     help="PhishShield AI Engine - Herramienta CLI de análisis de phishing",
-    no_args_is_help=True,
+    add_completion=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
 console = Console()
+
+BANNER = r"""
+██████╗ ██╗  ██╗██╗███████╗██╗  ██╗███████╗██╗  ██╗██╗███████╗██╗██████╗ 
+██╔══██╗██║  ██║██║██╔════╝██║  ██║██╔════╝██║  ██║██║██╔════╝██║██╔══██╗
+██████╔╝███████║██║███████╗███████║███████╗███████║██║█████╗  ██║██║  ██║
+██╔═══╝ ██╔══██║██║╚════██║██╔══██║╚════██║██╔══██║██║██╔══╝  ██║██║  ██║
+██║     ██║  ██║██║███████╗██║  ██║███████║██║  ██║██║███████╗██║██████╔╝
+╚═╝     ╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚═╝╚═════╝ 
+"""
 
 
 def get_risk_color(risk_level: RiskLevel) -> str:
@@ -254,15 +264,35 @@ def main_callback(
         ),
     ] = None,
 ):
-    """Callback global para soportar ejecuciones directas con flags (-u / --scan-url)."""
-    if ctx.invoked_subcommand is None and url:
-        asyncio.run(
-            run_pipeline(
-                url=url,
-                output_path=output,
-                screenshot_path=save_screenshot,
+    """Callback global para soportar ejecuciones directas con flags (-u / --scan-url) o bienvenido inicial."""
+    if ctx.invoked_subcommand is None:
+        if url:
+            asyncio.run(
+                run_pipeline(
+                    url=url,
+                    output_path=output,
+                    screenshot_path=save_screenshot,
+                )
             )
-        )
+        else:
+            # Renderizado limpio del Banner + Autor + Comandos Básicos
+            console.print(f"[bold cyan]{BANNER}[/bold cyan]")
+            console.print(
+                "  [bold white]🛡️ PhishShield AI Engine v2.0[/bold white] | [dim]Author: [bold green]@Sl1nck[/bold green][/dim]\n"
+            )
+            console.print("  [bold yellow]Comandos disponibles:[/bold yellow]")
+            console.print(
+                "   [bold cyan]• analyze[/bold cyan]   Análisis híbrido de URLs (Heurística + Gemini AI)"
+            )
+            console.print(
+                "   [bold cyan]• takedown[/bold cyan]  Generación automática de reportes de abuso"
+            )
+            console.print(
+                "   [bold cyan]• scan-url[/bold cyan]  Escaneo directo de artefactos DOM y capturas PNG\n"
+            )
+            console.print(
+                "  [dim]Ejecuta [bold white]phishshield -h[/bold white] o [bold white]phishshield --help[/bold white] para ver las opciones detalladas.[/dim]\n"
+            )
 
 
 @app.command()
