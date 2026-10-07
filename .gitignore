@@ -1,10 +1,27 @@
-cat << 'EOF' >> .gitignore
-
+cat << 'EOF' > .gitignore
 # Entornos virtuales y secretos
 .env
 .venv/
+*.env
+
+# Archivos compilados y temporales de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Cobertura, tests y linters
 .coverage
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+htmlcov/
+
+# Configuración de IDEs
+.vscode/
+.idea/
 EOF
