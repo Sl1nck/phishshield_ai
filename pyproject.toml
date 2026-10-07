@@ -41,6 +41,10 @@ minversion = "8.0"
 addopts = "-ra -q"
 testpaths = ["tests"]
 asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning",
+]
 
 # ==============================================================================
 # CONFIGURACIÓN DE RUFF (Linter y Formateador)
