@@ -38,10 +38,12 @@ class PhishShieldPipeline:
         scraper: PlaywrightScraper | None = None,
         engine: HeuristicEngine | None = None,
         gemini_adapter: GeminiAdapter | None = None,
+        use_pro: bool = False,
     ) -> None:
         self.scraper = scraper or PlaywrightScraper()
         self.engine = engine or HeuristicEngine()
-        self.gemini_adapter = gemini_adapter or GeminiAdapter()
+        self.use_pro = use_pro
+        self.gemini_adapter = gemini_adapter or GeminiAdapter(use_pro=use_pro)
 
     async def analyze_url_async(
         self,

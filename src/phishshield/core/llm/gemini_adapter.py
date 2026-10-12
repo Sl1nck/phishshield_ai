@@ -32,7 +32,7 @@ def _is_transient_error(exception: BaseException) -> bool:
 
 class GeminiAdapter(BaseLLMAdapter):
     """Adaptador asíncrono para la API de Google Gemini utilizando el SDK 'google-genai'.
-    Utiliza JSON Mode puro e inyección de esquemas para evitar errores de Automatic Function Calling (AFC).
+    Incorpora autodetección dinámica de modelos y soporte para perfiles Flash/Pro.
     """
 
     def __init__(
@@ -40,21 +40,12 @@ class GeminiAdapter(BaseLLMAdapter):
         api_key: str | None = None,
         primary_model: str | None = None,
         fallback_model: str | None = None,
+        use_pro: bool = False,
     ) -> None:
         self.api_key: str | None = (
             api_key
             or getattr(settings, "GEMINI_API_KEY", None)
             or os.getenv("GEMINI_API_KEY")
-        )
-        self.primary_model: str = (
-            primary_model
-            or getattr(settings, "GEMINI_PRIMARY_MODEL", None)
-            or "gemini-2.0-flash"
-        )
-        self.fallback_model: str | None = (
-            fallback_model
-            or getattr(settings, "GEMINI_FALLBACK_MODEL", None)
-            or "gemini-1.5-pro"
         )
 
         if not self.api_key:
@@ -63,7 +54,47 @@ class GeminiAdapter(BaseLLMAdapter):
                 "Asegúrate de configurar GEMINI_API_KEY en el archivo .env o en las variables de entorno."
             )
 
+        # Inicializar cliente oficial
         self.client = genai.Client(api_key=self.api_key)
+
+        # Resolver modelos dinámicamente o por configuración explícita
+        resolved_primary, resolved_fallback = self._resolve_dynamic_models(use_pro=use_pro)
+
+        self.primary_model: str = (
+            primary_model
+            or getattr(settings, "GEMINI_PRIMARY_MODEL", None)
+            or resolved_primary
+        )
+        self.fallback_model: str | None = (
+            fallback_model
+            or getattr(settings, "GEMINI_FALLBACK_MODEL", None)
+            or resolved_fallback
+        )
+
+    def _resolve_dynamic_models(self, use_pro: bool = False) -> tuple[str, str]:
+        """Consulta dinámicamente a la API los modelos disponibles según la preferencia (Flash o Pro)."""
+        target_keyword = 'pro' if use_pro else 'flash'
+        default_primary = 'gemini-3.8-pro' if use_pro else 'gemini-3.8-flash'
+        default_fallback = 'gemini-3.5-pro' if use_pro else 'gemini-3.5-flash-lite'
+
+        try:
+            models = list(self.client.models.list())
+            valid_models = [
+                m.name for m in models 
+                if hasattr(m, 'supported_generation_methods') 
+                and 'generateContent' in m.supported_generation_methods 
+                and target_keyword in m.name.lower()
+            ]
+            if valid_models:
+                primary = valid_models[-1]
+                remaining = [m for m in valid_models if m != primary]
+                fallback = remaining[-1] if remaining else default_fallback
+                return primary, fallback
+        except Exception:
+            # En caso de fallo de red o conectividad inicial, usa los valores seguros de respaldo
+            pass
+
+        return default_primary, default_fallback
 
     @retry(
         retry=retry_if_exception(_is_transient_error),
@@ -139,13 +170,11 @@ class GeminiAdapter(BaseLLMAdapter):
         )
         response = await self._dispatch_call(self.primary_model, [enriched_prompt], config)
 
-        # 1. Soporte para objetos parseados (Mocks / SDK)
         if hasattr(response, "parsed") and response.parsed is not None:
             if isinstance(response.parsed, response_schema):
                 return response.parsed
             return response_schema.model_validate(response.parsed)
 
-        # 2. Parseo de cadena de texto JSON
         response_text = getattr(response, "text", None)
         if isinstance(response_text, str) and response_text.strip():
             return response_schema.model_validate_json(response_text)
@@ -178,11 +207,28 @@ class GeminiAdapter(BaseLLMAdapter):
             "text_snippet": str(text_content or "")[:1500],
         }
 
-        heuristics_str = (
-            json.dumps(heuristic_flags, indent=2, ensure_ascii=False)
-            if heuristic_flags
-            else "[]"
-        )
+        # Convertir de forma segura las alertas a un formato JSON serializable
+        serialized_flags = []
+        if heuristic_flags:
+            for flag in heuristic_flags:
+                if hasattr(flag, "model_dump"):
+                    serialized_flags.append(flag.model_dump())
+                elif hasattr(flag, "dict"):
+                    serialized_flags.append(flag.dict())
+                elif isinstance(flag, dict):
+                    serialized_flags.append(flag)
+                else:
+                    # Si es un objeto RuleResult o similar, extraemos sus atributos o usamos representación en texto
+                    serialized_flags.append(
+                        {
+                            "id": getattr(flag, "id", "UNKNOWN"),
+                            "name": getattr(flag, "name", str(flag)),
+                            "impact": getattr(flag, "impact", 0),
+                            "description": getattr(flag, "description", ""),
+                        }
+                    )
+
+        heuristics_str = json.dumps(serialized_flags, indent=2, ensure_ascii=False)
 
         system_instruction = (
             "Eres PhishShield AI, un analista experto en ciberseguridad especializado en detección de Phishing. "
@@ -194,13 +240,20 @@ class GeminiAdapter(BaseLLMAdapter):
 
         prompt_text = f"""
 --- ARTEFACTOS DETECTADOS ---
-• URL Objetivo: {url}
-• Título de la Página: {dom_summary["title"]}
-• Formulario con Contraseña: {dom_summary["has_password_field"]}
-• Cantidad de Formularios: {dom_summary["forms_count"]}
-• Enlaces Externos: {dom_summary["external_links_count"]}
-• iFrames Detectados: {dom_summary["iframes_count"]}
-• Muestra del Texto en Pantalla: {dom_summary["text_snippet"]}
+- URL Objetivo: 
+{url}
+- Título de la Página: 
+{dom_summary["title"]}
+- Formulario con Contraseña: 
+{dom_summary["has_password_field"]}
+- Cantidad de Formularios: 
+{dom_summary["forms_count"]}
+- Enlaces Externos: 
+{dom_summary["external_links_count"]}
+- iFrames Detectados: 
+{dom_summary["iframes_count"]}
+- Muestra del Texto en Pantalla: 
+{dom_summary["text_snippet"]}
 
 --- ALERTAS HEURÍSTICAS DETECTADAS ---
 {heuristics_str}
@@ -236,13 +289,11 @@ IMPORTANTE: Responde ÚNICAMENTE en formato JSON válido que cumpla strictly con
             try:
                 response = await self._dispatch_call(current_model, contents, config)
 
-                # 1. Soporte para objeto parseado (útil en Mocks y respuestas del SDK)
                 if hasattr(response, "parsed") and response.parsed is not None:
                     if isinstance(response.parsed, ThreatAnalysisReport):
                         return response.parsed
                     return ThreatAnalysisReport.model_validate(response.parsed)
 
-                # 2. Parseo de texto JSON
                 response_text = getattr(response, "text", None)
                 if isinstance(response_text, str) and response_text.strip():
                     return ThreatAnalysisReport.model_validate_json(response_text)

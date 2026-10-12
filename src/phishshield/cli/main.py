@@ -128,6 +128,7 @@ async def run_pipeline(
     url: str,
     output_path: Path | None = None,
     screenshot_path: Path | None = None,
+    use_pro: bool = False,
 ):
     console.print(f"\n[bold blue][*] Iniciando captura y análisis DOM para:[/] {url}")
 
@@ -202,7 +203,7 @@ async def run_pipeline(
     console.print(
         "\n[bold yellow][*] Enviando artefactos y captura PNG a Gemini AI...[/]"
     )
-    adapter = GeminiAdapter()
+    adapter = GeminiAdapter(use_pro=use_pro)
 
     try:
         report: ThreatAnalysisReport = await adapter.analyze_phishing_site(
@@ -247,6 +248,10 @@ def main_callback(
         str | None,
         typer.Option("-u", "--scan-url", help="URL objetivo a analizar directamente"),
     ] = None,
+    pro: Annotated[
+        bool,
+        typer.Option("--pro", help="Usar modelo Pro avanzado de Gemini"),
+    ] = False,
     output: Annotated[
         Path | None,
         typer.Option(
@@ -272,6 +277,7 @@ def main_callback(
                     url=url,
                     output_path=output,
                     screenshot_path=save_screenshot,
+                    use_pro=pro,
                 )
             )
         else:
@@ -300,6 +306,10 @@ def scan_url(
     url: Annotated[
         str, typer.Option("--scan-url", "-u", help="URL objetivo a analizar")
     ],
+    pro: Annotated[
+        bool,
+        typer.Option("--pro", help="Usar modelo Pro avanzado de Gemini"),
+    ] = False,
     output: Annotated[
         Path | None,
         typer.Option(
@@ -323,6 +333,7 @@ def scan_url(
             url=url,
             output_path=output,
             screenshot_path=save_screenshot,
+            use_pro=pro,
         )
     )
 
@@ -338,13 +349,20 @@ def analyze(
             help="Forzar el análisis con Gemini AI aunque no se activen alertas heurísticas",
         ),
     ] = False,
+    pro: Annotated[
+        bool,
+        typer.Option(
+            "--pro",
+            help="Utiliza el modelo Pro de Google Gemini (requiere API Key con plan de pago en Google AI Studio)",
+        ),
+    ] = False,
     output: Annotated[
         Path | None,
         typer.Option("--output", "-o", help="Ruta de exportación del reporte JSON"),
     ] = None,
 ):
     """Analiza una URL utilizando el pipeline híbrido (Heurísticas + Inferencia IA)."""
-    pipeline = PhishShieldPipeline()
+    pipeline = PhishShieldPipeline(use_pro=pro)
     report: PipelineReport = asyncio.run(
         pipeline.analyze_url_async(url, force_ai=force_ai)
     )
@@ -377,6 +395,10 @@ def takedown(
             help="Correo de contacto del equipo de Abuse.",
         ),
     ] = "abuse@registrar-or-hosting.com",
+    pro: Annotated[
+        bool,
+        typer.Option("--pro", help="Usar modelo Pro avanzado de Gemini"),
+    ] = False,
     output_file: Annotated[
         Path | None,
         typer.Option(
@@ -399,7 +421,7 @@ def takedown(
         f"\n[bold yellow][*] Analizando {url} para generar notificación de takedown...[/bold yellow]\n"
     )
 
-    pipeline = PhishShieldPipeline()
+    pipeline = PhishShieldPipeline(use_pro=pro)
     report: PipelineReport = asyncio.run(pipeline.analyze_url_async(url))
 
     generator = TakedownGenerator()
