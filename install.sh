@@ -10,7 +10,7 @@ NC='\033[0m' # No Color
 
 echo -e "${CYAN}"
 echo "============================================================"
-echo "    🛡️  PhishShield AI Engine v2.0 - Universal Installer   "
+echo "    🛡️  PhishShield AI Engine v1.0 - Universal Installer   "
 echo "    Author: @Sl1nck                                         "
 echo "============================================================"
 echo -e "${NC}"
