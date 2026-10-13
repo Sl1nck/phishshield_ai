@@ -25,3 +25,8 @@ htmlcov/
 .vscode/
 .idea/
 EOF
+
+# Reportes y evidencias locales
+reports/*.json
+reports/*.png
+!.gitkeep

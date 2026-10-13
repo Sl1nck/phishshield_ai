@@ -7,6 +7,7 @@ from typing import Annotated
 import typer
 from google.genai.errors import APIError, ServerError
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 
 from phishshield.cli.ui import render_ai_report, render_heuristic_report
@@ -31,7 +32,7 @@ BANNER = r"""
 ██╔══██╗██║  ██║██║██╔════╝██║  ██║██╔════╝██║  ██║██║██╔════╝██║██╔══██╗
 ██████╔╝███████║██║███████╗███████║███████╗███████║██║█████╗  ██║██║  ██║
 ██╔═══╝ ██╔══██║██║╚════██║██╔══██║╚════██║██╔══██║██║██╔══╝  ██║██║  ██║
-██║     ██║  ██║██║███████╗██║  ██║███████║██║  ██║██║███████╗██║██████╔╝
+██║     ██║  ██║██║███████║██║  ██║███████║██║  ██║██║███████╗██║██████╔╝
 ╚═╝     ╚═╝  ╚═╝╚═╝╚══════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚═╝╚═════╝ 
 """
 
@@ -49,18 +50,24 @@ def get_risk_color(risk_level: RiskLevel) -> str:
 
 def save_json_report(
     output_path: Path,
-    artifacts: object,
-    parsed_dom: object,
-    report: ThreatAnalysisReport,
+    pipeline_report: PipelineReport,
 ):
-    """Genera y guarda una estructura JSON completa con metadatos del escaneo y el reporte de la IA."""
+    """Genera y guarda una estructura JSON forense completa con metadatos de escaneo dual, heurísticas y reporte AI."""
+    # 💡 Auto-guardado inteligente dentro de la carpeta 'reports/' si solo se provee un nombre de archivo simple
+    if output_path and len(output_path.parts) == 1:
+        output_path = Path("reports") / output_path
+
+    heur_result = pipeline_report.heuristic_result
+    ai_rep = pipeline_report.ai_report
+    parsed_dom = pipeline_report.parsed_dom
+
     payload = {
         "metadata": {
             "scan_timestamp": datetime.now(UTC).isoformat(),
-            "requested_url": getattr(artifacts, "url", ""),
-            "final_url": getattr(artifacts, "final_url", getattr(artifacts, "url", "")),
-            "http_status_code": getattr(artifacts, "status_code", 200),
-            "screenshot_size_bytes": len(getattr(artifacts, "screenshot_bytes", b"")),
+            "target_url": pipeline_report.url,
+            "is_cloaking_detected": pipeline_report.is_cloaking_detected,
+            "cloaking_reason": pipeline_report.cloaking_reason,
+            "error_message": pipeline_report.error_message,
         },
         "dom_artifacts": {
             "title": getattr(parsed_dom, "title", ""),
@@ -81,7 +88,18 @@ def save_json_report(
             ),
             "iframes_count": len(getattr(parsed_dom, "iframes", [])),
         },
-        "threat_analysis": report.model_dump(mode="json"),
+        "heuristic_analysis": {
+            "total_score": getattr(heur_result, "total_score", getattr(heur_result, "score", 0)),
+            "triggered_rules": [
+                {
+                    "rule_id": getattr(r, "rule_id", getattr(r, "id", "")),
+                    "name": getattr(r, "name", ""),
+                    "description": getattr(r, "description", ""),
+                }
+                for r in getattr(heur_result, "triggered_rules", getattr(heur_result, "flags", []))
+            ],
+        },
+        "threat_analysis": ai_rep.model_dump(mode="json") if ai_rep else None,
     }
 
     try:
@@ -113,17 +131,6 @@ def save_screenshot_image(screenshot_path: Path, screenshot_bytes: bytes):
         )
 
 
-async def check_llm_status() -> bool:
-    """Verifica la conectividad y el estado del servicio LLM enviando una solicitud de prueba."""
-    try:
-        adapter = LLMFactory.create_adapter()
-        await adapter.analyze_text("PING")
-        return True
-    except Exception as e:
-        console.print(f"[bold red][✘] Error al comprobar estado del LLM:[/] {e}")
-        return False
-
-
 async def run_pipeline(
     url: str,
     output_path: Path | None = None,
@@ -132,18 +139,15 @@ async def run_pipeline(
 ):
     console.print(f"\n[bold blue][*] Iniciando captura y análisis DOM para:[/] {url}")
 
-    # 1. Captura con Playwright
     scraper = PlaywrightScraper()
     artifacts = await scraper.scrape_url(url)
 
-    # 2. Parsing DOM con BeautifulSoup
     parser = DOMParser(artifacts.html_content)
     parsed_dom = parser.parse()
 
     if screenshot_path:
         save_screenshot_image(screenshot_path, artifacts.screenshot_bytes)
 
-    # 3. Mostrar Artefactos DOM en Consola
     table = Table(
         title="Artefactos Extraídos",
         show_header=True,
@@ -152,7 +156,7 @@ async def run_pipeline(
     table.add_column("Indicador / Propiedad", style="cyan")
     table.add_column("Valor Detectado", style="green")
 
-    table.add_row("URL Solicitada", artifacts.url)
+    table.add_row("URL Solicitada", artifacts.requested_url if hasattr(artifacts, "requested_url") else artifacts.url)
     table.add_row("URL Final (Redirección)", artifacts.final_url)
     table.add_row("Código de Estado HTTP", str(artifacts.status_code))
     table.add_row("Tamaño HTML DOM", f"{len(artifacts.html_content)} bytes")
@@ -194,12 +198,10 @@ async def run_pipeline(
     console.print(table)
     console.print("[+] Captura y parsing DOM finalizados exitosamente.\n")
 
-    # 4. Análisis con Motor Heurístico Estático
     engine = HeuristicEngine()
-    heuristic_result = engine.analyze(parsed_dom, artifacts.final_url)
+    heuristic_result = engine.engine.analyze(parsed_dom, artifacts.final_url) if hasattr(engine, "engine") else engine.analyze(parsed_dom, artifacts.final_url)
     render_heuristic_report(heuristic_result)
 
-    # 5. Inferencia Multimodal con Gemini API
     console.print(
         "\n[bold yellow][*] Enviando artefactos y captura PNG a Gemini AI...[/]"
     )
@@ -228,17 +230,7 @@ async def run_pipeline(
         )
         return
 
-    # 6. Renderizado del Reporte de Amenaza
     render_ai_report(report)
-
-    # 7. Exportación a archivo JSON si se proporcionó --output
-    if output_path:
-        save_json_report(
-            output_path=output_path,
-            artifacts=artifacts,
-            parsed_dom=parsed_dom,
-            report=report,
-        )
 
 
 @app.callback(invoke_without_command=True)
@@ -269,7 +261,7 @@ def main_callback(
         ),
     ] = None,
 ):
-    """Callback global para soportar ejecuciones directas con flags (-u / --scan-url) o bienvenido inicial."""
+    """Callback global para soportar ejecuciones directas con flags (-u / --scan-url) o bienvenida inicial."""
     if ctx.invoked_subcommand is None:
         if url:
             asyncio.run(
@@ -281,10 +273,9 @@ def main_callback(
                 )
             )
         else:
-            # Renderizado limpio del Banner + Autor + Comandos Básicos
             console.print(f"[bold cyan]{BANNER}[/bold cyan]")
             console.print(
-                "  [bold white]🛡️ PhishShield AI Engine v2.0[/bold white] | [dim]Author: [bold green]@Sl1nck[/bold green][/dim]\n"
+                "  [bold white]🛡️ PhishShield AI Engine v1.0[/bold white] | [dim]Author: [bold green]@Sl1nck[/bold green][/dim]\n"
             )
             console.print("  [bold yellow]Comandos disponibles:[/bold yellow]")
             console.print(
@@ -370,17 +361,27 @@ def analyze(
     console.print("\n[bold blue]=== PhishShield AI Report ===[/bold blue]")
     console.print(f"[bold]URL Analizada:[/bold] {report.url}\n")
 
+    # 🚨 Alerta visual en consola si se detectó Cloaking
+    if getattr(report, "is_cloaking_detected", False):
+        console.print(
+            Panel(
+                f"[bold red]⚠️ ADVERTENCIA DE EVASIÓN (USER-AGENT CLOAKING DETECTADO)[/bold red]\n\n"
+                f"{report.cloaking_reason}\n"
+                f"[dim]El sistema priorizó el análisis sobre la versión móvil del sitio para evitar un falso negativo de smishing.[/dim]",
+                title="[bold red]Seguridad Activa PhishShield[/bold red]",
+                border_style="red",
+            )
+        )
+
     if getattr(report, "heuristic_result", None):
         render_heuristic_report(report.heuristic_result)
 
     render_ai_report(getattr(report, "ai_report", None))
 
-    if output and getattr(report, "ai_report", None):
+    if output:
         save_json_report(
             output_path=output,
-            artifacts=getattr(report, "parsed_dom", None),
-            parsed_dom=getattr(report, "parsed_dom", None),
-            report=report.ai_report,
+            pipeline_report=report,
         )
 
 

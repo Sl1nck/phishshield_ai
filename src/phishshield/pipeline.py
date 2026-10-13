@@ -7,7 +7,7 @@ from rich.console import Console
 
 from phishshield.core.llm.gemini_adapter import GeminiAdapter
 from phishshield.core.llm.schemas import ThreatAnalysisReport
-from phishshield.heuristics.engine import HeuristicEngine, HeuristicResult
+from phishshield.heuristics.engine import HeuristicEngine, HeuristicResult, RuleResult
 from phishshield.scraper.browser import (
     PlaywrightScraper,
     ScraperError,
@@ -28,6 +28,8 @@ class PipelineReport:
     heuristic_result: HeuristicResult
     ai_report: ThreatAnalysisReport | None = None
     error_message: str | None = None
+    is_cloaking_detected: bool = False
+    cloaking_reason: str | None = None
 
 
 class PhishShieldPipeline:
@@ -50,7 +52,7 @@ class PhishShieldPipeline:
         url: str,
         force_ai: bool = True,
     ) -> PipelineReport:
-        """Ejecuta el flujo asíncrono completo combinando extracción DOM, evaluación heurística y análisis por IA.
+        """Ejecuta el flujo asíncrono completo combinando extracción DOM dual, evaluación heurística y análisis por IA.
 
         :param url: URL del sitio a analizar.
         :param force_ai: Si es True, ejecuta Gemini independientemente del score heurístico.
@@ -59,25 +61,40 @@ class PhishShieldPipeline:
         final_url = url
         html_content = ""
         screenshot_bytes = b""
+        dual_artifacts = None
 
-        # 1. Scraping del sitio web y captura de artefactos (con manejo defensivo de errores)
+        # 1. Scraping dual en paralelo (Desktop vs Mobile) y captura de artefactos
         try:
-            artifacts = await self.scraper.scrape_url(url)
-            final_url = artifacts.final_url
-            html_content = artifacts.html_content
-            screenshot_bytes = artifacts.screenshot_bytes
+            dual_artifacts = await self.scraper.scrape_url(url)
+            final_url = dual_artifacts.final_url
+            html_content = dual_artifacts.html_content
+            screenshot_bytes = dual_artifacts.screenshot_bytes
         except ScraperError as err:
             console.print(
                 f"[bold red][!] Error de scraping al acceder a {url}:[/] {err}"
             )
             error_message = str(err)
 
-        # 2. Parsing de la estructura HTML/DOM
+        # 2. Parsing de la estructura HTML/DOM (prioriza contenido móvil si se detecta cloaking)
         parser = DOMParser(html_content)
         parsed_dom = parser.parse()
 
         # 3. Evaluación heurística local
         heuristic_result = self.engine.analyze(parsed_dom, final_url)
+
+        # 💡 3.1. Inyección automática de regla heurística si se detecta Cloaking / Smishing evasivo
+        if dual_artifacts and dual_artifacts.is_cloaking_detected:
+            cloaking_rule = RuleResult(
+                rule_id="HEUR-CLOAKING",
+                name="User-Agent Cloaking / Evasión de Dispositivo",
+                triggered=True,
+                description=dual_artifacts.cloaking_reason or "El sitio altera su comportamiento o redirecciones según el tipo de dispositivo.",
+            )
+            
+            if hasattr(heuristic_result, "triggered_rules"):
+                heuristic_result.triggered_rules.append(cloaking_rule)
+                if hasattr(heuristic_result, "total_score"):
+                    heuristic_result.total_score = min(100, heuristic_result.total_score + 40)
 
         # 4. Inferencia por IA multimodal (solo si el scraping fue exitoso y la IA está habilitada)
         ai_report: ThreatAnalysisReport | None = None
@@ -113,6 +130,8 @@ class PhishShieldPipeline:
             heuristic_result=heuristic_result,
             ai_report=ai_report,
             error_message=error_message,
+            is_cloaking_detected=dual_artifacts.is_cloaking_detected if dual_artifacts else False,
+            cloaking_reason=dual_artifacts.cloaking_reason if dual_artifacts else None,
         )
 
     def analyze_url(self, url: str, force_ai: bool = True) -> PipelineReport:
@@ -126,7 +145,6 @@ class PhishShieldPipeline:
             loop = None
 
         if loop and loop.is_running():
-            # Si ya hay un bucle ejecutándose (ej. FastAPI/Jupyter), se requiere usar analyze_url_async
             raise RuntimeError(
                 "PhishShieldPipeline.analyze_url() no se puede llamar desde un event loop activo. "
                 "Utiliza 'await pipeline.analyze_url_async(url)' en su lugar."
